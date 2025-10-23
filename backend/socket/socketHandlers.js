@@ -6,6 +6,9 @@ const GroupChat = require('../models/groupchat.models');
 const Notification = require('../models/notification.models');
 
 const connectedUsers = new Map();
+const userSessions = new Map(); // Cache user data
+const chatSessions = new Map(); // Cache chat data
+const groupSessions = new Map(); // Cache group data
 
 const socketAuth = async (socket, next) => {
     try {
@@ -32,40 +35,61 @@ const socketAuth = async (socket, next) => {
 const handleConnection = async (socket) => {
     console.log(`User ${socket.user.username} connected`);
     
+    // Cache user session data
+    let userSession = userSessions.get(socket.userId);
+    if (!userSession) {
+        const user = await User.findById(socket.userId).populate('connections');
+        userSession = {
+            user: user,
+            connections: user.connections.map(c => c._id.toString()),
+            lastUpdated: Date.now()
+        };
+        userSessions.set(socket.userId, userSession);
+    }
+    
     // Update user status to online
     await User.findByIdAndUpdate(socket.userId, { 
         status: 'online',
         lastseen: new Date()
     });
 
-    // Store connected user
-    connectedUsers.set(socket.userId, socket.id);
+    // Store connected user with session data
+    connectedUsers.set(socket.userId, {
+        socketId: socket.id,
+        username: socket.user.username,
+        connections: userSession.connections
+    });
 
     // Join user to their personal room
     socket.join(socket.userId);
 
-    // Join user to all their chat rooms
-    const privateChats = await PrivateChat.find({ participants: socket.userId });
-    const groupChats = await GroupChat.find({ members: socket.userId });
+    // Cache and join chat rooms
+    let userChats = chatSessions.get(socket.userId);
+    if (!userChats || Date.now() - userChats.lastUpdated > 300000) { // 5 min cache
+        const privateChats = await PrivateChat.find({ participants: socket.userId });
+        const groupChats = await GroupChat.find({ members: socket.userId });
+        
+        userChats = {
+            privateChats: privateChats.map(c => ({ id: c._id.toString(), participants: c.participants })),
+            groupChats: groupChats.map(g => ({ id: g._id.toString(), members: g.members })),
+            lastUpdated: Date.now()
+        };
+        chatSessions.set(socket.userId, userChats);
+    }
 
-    privateChats.forEach(chat => {
-        socket.join(chat._id.toString());
-    });
+    // Join rooms using cached data
+    userChats.privateChats.forEach(chat => socket.join(chat.id));
+    userChats.groupChats.forEach(group => socket.join(group.id));
 
-    groupChats.forEach(group => {
-        socket.join(group._id.toString());
-    });
-
-    // Notify connections about online status and send queued notifications
-    const user = await User.findById(socket.userId).populate('connections');
-    user.connections.forEach(connection => {
-        socket.to(connection._id.toString()).emit('user_online', {
+    // Notify connections using cached data
+    userSession.connections.forEach(connectionId => {
+        socket.to(connectionId).emit('user_online', {
             userId: socket.userId,
             username: socket.user.username
         });
     });
     
-    // Send queued notifications for offline messages
+    // Send queued notifications (keep DB query for accuracy)
     const queuedNotifications = await Notification.find({
         recipient: socket.userId,
         isRead: false
@@ -77,7 +101,6 @@ const handleConnection = async (socket) => {
             notifications: queuedNotifications
         });
         
-        // Mark notifications as read
         await Notification.updateMany(
             { recipient: socket.userId, isRead: false },
             { isRead: true }
@@ -89,8 +112,11 @@ const handleConnection = async (socket) => {
         try {
             const { chatId, content, messageType = 'text', fileUrl } = data;
 
-            const chat = await PrivateChat.findById(chatId);
-            if (!chat || !chat.participants.includes(socket.userId)) {
+            // Check cached chat data first
+            const userChats = chatSessions.get(socket.userId);
+            const cachedChat = userChats?.privateChats.find(c => c.id === chatId);
+            
+            if (!cachedChat || !cachedChat.participants.includes(socket.userId)) {
                 return socket.emit('error', { message: 'Unauthorized' });
             }
 
@@ -103,15 +129,22 @@ const handleConnection = async (socket) => {
                 readBy: [socket.userId]
             });
 
-            const populatedMessage = await Message.findById(message._id)
-                .populate('sender', 'username avatar');
+            // Use cached user data for sender info
+            const senderData = connectedUsers.get(socket.userId);
+            const populatedMessage = {
+                ...message.toObject(),
+                sender: {
+                    _id: socket.userId,
+                    username: senderData.username,
+                    avatar: socket.user.avatar
+                }
+            };
 
-            // Update chat's latest message
-            chat.latestMessage = message._id;
-            await chat.save();
+            // Update chat's latest message (async, no await)
+            PrivateChat.findByIdAndUpdate(chatId, { latestMessage: message._id }).exec();
 
-            // Emit to all participants and queue for offline users
-            const otherParticipant = chat.participants.find(p => p.toString() !== socket.userId);
+            // Emit using cached participant data
+            const otherParticipant = cachedChat.participants.find(p => p.toString() !== socket.userId);
             const isRecipientOnline = connectedUsers.has(otherParticipant.toString());
             
             socket.to(chatId).emit('new_private_message', populatedMessage);
@@ -119,14 +152,14 @@ const handleConnection = async (socket) => {
             
             // Queue notification for offline user
             if (!isRecipientOnline) {
-                await Notification.create({
+                Notification.create({
                     recipient: otherParticipant,
                     type: 'message',
                     message: message._id,
                     sender: socket.userId,
                     chatId: chatId,
                     isGroup: false
-                });
+                }).exec();
             }
 
         } catch (error) {
@@ -243,29 +276,52 @@ const handleConnection = async (socket) => {
     socket.on('disconnect', async () => {
         console.log(`User ${socket.user.username} disconnected`);
         
-        // Update user status to offline
-        await User.findByIdAndUpdate(socket.userId, { 
+        const userData = connectedUsers.get(socket.userId);
+        
+        // Update user status to offline (async, no await)
+        User.findByIdAndUpdate(socket.userId, { 
             status: 'offline',
             lastseen: new Date()
-        });
+        }).exec();
+
+        // Notify connections using cached data
+        if (userData?.connections) {
+            userData.connections.forEach(connectionId => {
+                socket.to(connectionId).emit('user_offline', {
+                    userId: socket.userId,
+                    username: userData.username,
+                    lastseen: new Date()
+                });
+            });
+        }
 
         // Remove from connected users
         connectedUsers.delete(socket.userId);
-
-        // Notify connections about offline status
-        const user = await User.findById(socket.userId).populate('connections');
-        user.connections.forEach(connection => {
-            socket.to(connection._id.toString()).emit('user_offline', {
-                userId: socket.userId,
-                username: socket.user.username,
-                lastseen: new Date()
-            });
-        });
     });
 };
+
+// Clean up stale sessions every 30 minutes
+setInterval(() => {
+    const now = Date.now();
+    const maxAge = 30 * 60 * 1000; // 30 minutes
+    
+    for (const [userId, session] of userSessions.entries()) {
+        if (now - session.lastUpdated > maxAge) {
+            userSessions.delete(userId);
+        }
+    }
+    
+    for (const [userId, chats] of chatSessions.entries()) {
+        if (now - chats.lastUpdated > maxAge) {
+            chatSessions.delete(userId);
+        }
+    }
+}, 30 * 60 * 1000);
 
 module.exports = {
     socketAuth,
     handleConnection,
-    connectedUsers
+    connectedUsers,
+    userSessions,
+    chatSessions
 };

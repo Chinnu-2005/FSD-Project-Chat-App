@@ -43,45 +43,62 @@ const getUserChats = asyncHandler(async (req, res) => {
 });
 
 const sendMessage = asyncHandler(async (req, res) => {
-    const { chatId } = req.params;
-    const { content, messageType = 'text' } = req.body;
+    try {
+        const { chatId } = req.params;
+        const { content, messageType = 'text' } = req.body;
 
-    const chat = await PrivateChat.findById(chatId);
-    if (!chat) {
-        throw new ApiError(404, 'Chat not found');
-    }
+        console.log('Send message request:', { chatId, content, messageType, userId: req.user._id });
 
-    if (!chat.participants.includes(req.user._id)) {
-        throw new ApiError(403, 'Not authorized to send message in this chat');
-    }
-
-    let fileUrl = null;
-    let finalMessageType = messageType;
-    
-    if (req.file) {
-        const uploadResult = await uploadOnCloudinary(req.file.path);
-        if (uploadResult) {
-            fileUrl = uploadResult.secure_url;
-            finalMessageType = uploadResult.resource_type === 'image' ? 'image' : 'file';
+        // Allow empty content if there's a file
+        if (!content?.trim() && !req.file) {
+            throw new ApiError(400, 'Message content or file is required');
         }
+
+        const chat = await PrivateChat.findById(chatId);
+        if (!chat) {
+            throw new ApiError(404, 'Chat not found');
+        }
+
+        if (!chat.participants.includes(req.user._id)) {
+            throw new ApiError(403, 'Not authorized to send message in this chat');
+        }
+
+        let fileUrl = null;
+        let finalMessageType = messageType;
+        
+        if (req.file) {
+            try {
+                const uploadResult = await uploadOnCloudinary(req.file.path);
+                if (uploadResult) {
+                    fileUrl = uploadResult.secure_url;
+                    finalMessageType = uploadResult.resource_type === 'image' ? 'image' : 'file';
+                }
+            } catch (uploadError) {
+                console.error('File upload error:', uploadError);
+                throw new ApiError(500, 'File upload failed');
+            }
+        }
+
+        const message = await Message.create({
+            sender: req.user._id,
+            content: content || '',
+            messageType: finalMessageType,
+            fileUrl,
+            privateChat: chatId,
+            readBy: [req.user._id]
+        });
+
+        chat.latestMessage = message._id;
+        await chat.save();
+
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'username avatar');
+
+        res.status(201).json(new ApiResponse(201, populatedMessage, 'Message sent'));
+    } catch (error) {
+        console.error('Send message error:', error);
+        throw error;
     }
-
-    const message = await Message.create({
-        sender: req.user._id,
-        content: content || '',
-        messageType: finalMessageType,
-        fileUrl,
-        privateChat: chatId,
-        readBy: [req.user._id]
-    });
-
-    chat.latestMessage = message._id;
-    await chat.save();
-
-    const populatedMessage = await Message.findById(message._id)
-        .populate('sender', 'username avatar');
-
-    res.status(201).json(new ApiResponse(201, populatedMessage, 'Message sent'));
 });
 
 const getChatMessages = asyncHandler(async (req, res) => {
