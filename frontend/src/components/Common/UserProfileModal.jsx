@@ -9,7 +9,15 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) =
   // Update connection status when user or currentUser changes
   useEffect(() => {
     if (currentUser?.connections && user) {
-      setIsConnected(currentUser.connections.some(conn => conn._id === user._id));
+      const connected = currentUser.connections.some(conn => 
+        (typeof conn === 'string' ? conn : conn._id) === user._id
+      );
+      console.log('Connection check:', { 
+        userId: user._id, 
+        connections: currentUser.connections, 
+        connected 
+      });
+      setIsConnected(connected);
     }
   }, [currentUser, user]);
 
@@ -19,7 +27,8 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) =
       await api.post(`/users/connect/${user._id}`);
       setRequestSent(true);
     } catch (error) {
-      console.error('Failed to send connection request:', error);
+      console.error('Failed to send connection request:', error.response?.data?.message || error.message);
+      alert(error.response?.data?.message || 'Failed to send connection request');
     } finally {
       setLoading(false);
     }
@@ -42,7 +51,16 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) =
   if (!isOpen || !user) return null;
 
 
-  const hasPendingRequest = currentUser?.pendingRequests?.includes(user._id);
+  const hasPendingRequest = currentUser?.pendingRequests?.some(req => 
+    (typeof req === 'string' ? req : req._id) === user._id
+  );
+  
+  console.log('User profile modal state:', { 
+    isConnected, 
+    requestSent, 
+    hasPendingRequest,
+    userId: user._id 
+  });
 
   return (
     <div style={{

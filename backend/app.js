@@ -32,6 +32,7 @@ app.get('/', (req, res) => {
     res.json({ message: 'Chat App Backend is running!' });
 });
 
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err);
@@ -46,8 +47,6 @@ app.use((err, req, res, next) => {
         errors: err.errors || []
     });
 });
-
-
 
 
 
