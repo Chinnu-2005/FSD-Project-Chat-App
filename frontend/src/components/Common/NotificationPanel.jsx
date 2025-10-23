@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../utils/api';
 
-const NotificationPanel = ({ isOpen, onClose }) => {
+const NotificationPanel = ({ isOpen, onClose, onConnectionUpdate }) => {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -25,6 +25,9 @@ const NotificationPanel = ({ isOpen, onClose }) => {
     try {
       await api.post(`/users/${action}/${userId}`);
       setPendingRequests(prev => prev.filter(req => req._id !== userId));
+      if (onConnectionUpdate) {
+        onConnectionUpdate();
+      }
     } catch (error) {
       console.error(`Failed to ${action} request:`, error);
     } finally {

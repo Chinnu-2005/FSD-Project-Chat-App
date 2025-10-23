@@ -7,7 +7,7 @@ import NotificationPanel from '../Common/NotificationPanel';
 import CreateGroupModal from '../Common/CreateGroupModal';
 import ConfirmDialog from '../Common/ConfirmDialog';
 
-const Sidebar = ({ onChatSelect, activeChat, currentUser }) => {
+const Sidebar = ({ onChatSelect, activeChat, currentUser, onUserUpdate }) => {
   const [chats, setChats] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -404,6 +404,11 @@ const Sidebar = ({ onChatSelect, activeChat, currentUser }) => {
         isOpen={showUserProfile}
         onClose={() => setShowUserProfile(false)}
         currentUser={currentUser}
+        onChatStart={(chat) => {
+          onChatSelect(chat);
+          setShowUserProfile(false);
+          fetchChats();
+        }}
       />
       
       <NotificationPanel
@@ -412,6 +417,11 @@ const Sidebar = ({ onChatSelect, activeChat, currentUser }) => {
           setShowNotifications(false);
           fetchPendingCount();
           fetchGroups();
+          if (onUserUpdate) onUserUpdate();
+        }}
+        onConnectionUpdate={() => {
+          fetchPendingCount();
+          if (onUserUpdate) onUserUpdate();
         }}
       />
       

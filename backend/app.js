@@ -1,5 +1,6 @@
 const express=require('express');
 const app=express();
+// Updated CORS configuration
 const cors=require('cors');
 const cookieParser=require('cookie-parser');
 
@@ -25,6 +26,11 @@ app.use('/api/users',userRoutes);
 app.use('/api/chats',chatRoutes);
 app.use('/api/groups',groupRoutes);
 app.use('/api/upload',uploadRoutes);
+
+// Health check route
+app.get('/', (req, res) => {
+    res.json({ message: 'Chat App Backend is running!' });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {

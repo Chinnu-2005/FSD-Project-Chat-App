@@ -1,9 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../../utils/api';
 
-const UserProfileModal = ({ user, isOpen, onClose, currentUser }) => {
+const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) => {
   const [loading, setLoading] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Update connection status when user or currentUser changes
+  useEffect(() => {
+    if (currentUser?.connections && user) {
+      setIsConnected(currentUser.connections.some(conn => conn._id === user._id));
+    }
+  }, [currentUser, user]);
 
   const sendConnectionRequest = async () => {
     setLoading(true);
@@ -20,8 +28,12 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser }) => {
   const startChat = async () => {
     try {
       const response = await api.get(`/chats/${user._id}`);
-      onClose();
-      // You can add callback here to select the chat
+      const chat = { ...response.data.data, type: 'private' };
+      if (onChatStart) {
+        onChatStart(chat);
+      } else {
+        onClose();
+      }
     } catch (error) {
       console.error('Failed to start chat:', error);
     }
@@ -29,7 +41,7 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser }) => {
 
   if (!isOpen || !user) return null;
 
-  const isConnected = currentUser?.connections?.some(conn => conn._id === user._id);
+
   const hasPendingRequest = currentUser?.pendingRequests?.includes(user._id);
 
   return (
