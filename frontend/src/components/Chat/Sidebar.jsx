@@ -412,7 +412,10 @@ const Sidebar = ({ onChatSelect, activeChat, currentUser, onUserUpdate }) => {
         onChatStart={(chat) => {
           onChatSelect(chat);
           setShowUserProfile(false);
-          fetchChats();
+          fetchChats(); // Refresh chat list
+        }}
+        onConnectionUpdate={() => {
+          fetchChats(); // Refresh chats when connection status changes
         }}
       />
       

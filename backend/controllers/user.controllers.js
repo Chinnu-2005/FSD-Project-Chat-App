@@ -89,6 +89,13 @@ const acceptConnectionRequest = asyncHandler(async (req, res) => {
     otherUser.connections.push(req.user._id);
     await otherUser.save();
 
+    // Clear socket session cache for both users to force refresh
+    const { userSessions, chatSessions } = require('../socket/socketHandlers');
+    userSessions.delete(req.user._id.toString());
+    userSessions.delete(userId);
+    chatSessions.delete(req.user._id.toString());
+    chatSessions.delete(userId);
+
     res.status(200).json(new ApiResponse(200, null, 'Connection request accepted'));
 });
 

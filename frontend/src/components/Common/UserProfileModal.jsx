@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../utils/api';
 
-const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) => {
+const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart, onConnectionUpdate }) => {
   const [loading, setLoading] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -26,6 +26,9 @@ const UserProfileModal = ({ user, isOpen, onClose, currentUser, onChatStart }) =
     try {
       await api.post(`/users/connect/${user._id}`);
       setRequestSent(true);
+      if (onConnectionUpdate) {
+        onConnectionUpdate();
+      }
     } catch (error) {
       console.error('Failed to send connection request:', error.response?.data?.message || error.message);
       alert(error.response?.data?.message || 'Failed to send connection request');

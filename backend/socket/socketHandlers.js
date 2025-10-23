@@ -110,13 +110,35 @@ const handleConnection = async (socket) => {
     // Handle private message
     socket.on('send_private_message', async (data) => {
         try {
+            console.log('Received private message via socket:', data);
             const { chatId, content, messageType = 'text', fileUrl } = data;
 
             // Check cached chat data first
             const userChats = chatSessions.get(socket.userId);
-            const cachedChat = userChats?.privateChats.find(c => c.id === chatId);
+            console.log('User chats from cache:', userChats?.privateChats?.length || 0);
+            
+            let cachedChat = userChats?.privateChats.find(c => c.id === chatId);
+            console.log('Found cached chat:', !!cachedChat);
+            
+            // If chat not found in cache, refresh cache and try again
+            if (!cachedChat) {
+                console.log('Chat not in cache, refreshing...');
+                const privateChats = await PrivateChat.find({ participants: socket.userId });
+                const groupChats = await GroupChat.find({ members: socket.userId });
+                
+                const refreshedChats = {
+                    privateChats: privateChats.map(c => ({ id: c._id.toString(), participants: c.participants })),
+                    groupChats: groupChats.map(g => ({ id: g._id.toString(), members: g.members })),
+                    lastUpdated: Date.now()
+                };
+                chatSessions.set(socket.userId, refreshedChats);
+                
+                cachedChat = refreshedChats.privateChats.find(c => c.id === chatId);
+                console.log('Found chat after refresh:', !!cachedChat);
+            }
             
             if (!cachedChat || !cachedChat.participants.includes(socket.userId)) {
+                console.log('Unauthorized chat access:', { cachedChat: !!cachedChat, userId: socket.userId });
                 return socket.emit('error', { message: 'Unauthorized' });
             }
 
@@ -128,6 +150,7 @@ const handleConnection = async (socket) => {
                 privateChat: chatId,
                 readBy: [socket.userId]
             });
+            console.log('Message created:', message._id);
 
             // Use cached user data for sender info
             const senderData = connectedUsers.get(socket.userId);
@@ -139,6 +162,7 @@ const handleConnection = async (socket) => {
                     avatar: socket.user.avatar
                 }
             };
+            console.log('Populated message created');
 
             // Update chat's latest message (async, no await)
             PrivateChat.findByIdAndUpdate(chatId, { latestMessage: message._id }).exec();
@@ -147,6 +171,7 @@ const handleConnection = async (socket) => {
             const otherParticipant = cachedChat.participants.find(p => p.toString() !== socket.userId);
             const isRecipientOnline = connectedUsers.has(otherParticipant.toString());
             
+            console.log('Emitting message to room:', chatId);
             socket.to(chatId).emit('new_private_message', populatedMessage);
             socket.emit('message_sent', populatedMessage);
             
@@ -163,6 +188,7 @@ const handleConnection = async (socket) => {
             }
 
         } catch (error) {
+            console.error('Socket message error:', error);
             socket.emit('error', { message: 'Failed to send message' });
         }
     });

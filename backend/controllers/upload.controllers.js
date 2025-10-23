@@ -15,6 +15,7 @@ const uploadFile = asyncHandler(async (req, res) => {
     }
 
     res.status(200).json(new ApiResponse(200, {
+        fileUrl: result.secure_url,
         url: result.secure_url,
         publicId: result.public_id,
         resourceType: result.resource_type

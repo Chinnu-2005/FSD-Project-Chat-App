@@ -129,6 +129,7 @@ const ChatWindow = ({ chat, currentUser }) => {
       
       // Handle file upload first if there's a file
       if (selectedFile) {
+        console.log('Uploading file:', selectedFile.name);
         const formData = new FormData();
         formData.append('file', selectedFile);
         
@@ -136,8 +137,10 @@ const ChatWindow = ({ chat, currentUser }) => {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         
+        console.log('Upload response:', uploadResponse.data.data);
         fileUrl = uploadResponse.data.data.fileUrl;
         messageType = selectedFile.type.startsWith('image/') ? 'image' : 'file';
+        console.log('File uploaded successfully:', fileUrl);
       }
       
       // Send message via socket
