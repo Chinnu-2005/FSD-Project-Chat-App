@@ -2,7 +2,7 @@ import { useState } from 'react';
 import api from '../../utils/api';
 import socketService from '../../utils/socket';
 
-const ProfileModal = ({ user, isOpen, onClose }) => {
+const ProfileModal = ({ user, isOpen, onClose, onUserUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     bio: user?.bio || ''
@@ -26,11 +26,18 @@ const ProfileModal = ({ user, isOpen, onClose }) => {
         formDataToSend.append('avatar', avatarFile);
       }
       
-      await api.patch('/users/profile', formDataToSend, {
+      const response = await api.patch('/users/profile', formDataToSend, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      
       setIsEditing(false);
-      window.location.reload();
+      setAvatarFile(null);
+      
+      // Update parent component with new user data
+      if (onUserUpdate) {
+        onUserUpdate(response.data.data);
+      }
+      
     } catch (error) {
       console.error('Failed to update profile:', error);
     } finally {

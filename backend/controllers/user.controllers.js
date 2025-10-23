@@ -10,23 +10,40 @@ const getUserProfile = asyncHandler(async (req, res) => {
 });
 
 const updateProfile = asyncHandler(async (req, res) => {
-    const { bio } = req.body;
-    const updateData = { bio };
-    
-    if (req.file) {
-        const avatarResult = await uploadOnCloudinary(req.file.path);
-        if (avatarResult) {
-            updateData.avatar = avatarResult.secure_url;
+    try {
+        const { bio } = req.body;
+        const updateData = { bio };
+        
+        console.log('Profile update request:', { bio, hasFile: !!req.file });
+        
+        if (req.file) {
+            try {
+                console.log('Uploading file to Cloudinary:', req.file.path);
+                const avatarResult = await uploadOnCloudinary(req.file.path);
+                if (avatarResult) {
+                    updateData.avatar = avatarResult.secure_url;
+                    console.log('Avatar uploaded successfully:', avatarResult.secure_url);
+                } else {
+                    console.log('Avatar upload failed - no result');
+                }
+            } catch (uploadError) {
+                console.error('Avatar upload error:', uploadError);
+                // Continue without avatar update if upload fails
+            }
         }
+        
+        const user = await User.findByIdAndUpdate(
+            req.user._id,
+            updateData,
+            { new: true }
+        ).select('-password -refreshToken');
+        
+        console.log('Profile updated successfully for user:', req.user._id);
+        res.status(200).json(new ApiResponse(200, user, 'Profile updated successfully'));
+    } catch (error) {
+        console.error('Profile update error:', error);
+        throw error;
     }
-    
-    const user = await User.findByIdAndUpdate(
-        req.user._id,
-        updateData,
-        { new: true }
-    ).select('-password -refreshToken');
-    
-    res.status(200).json(new ApiResponse(200, user, 'Profile updated successfully'));
 });
 
 const sendConnectionRequest = asyncHandler(async (req, res) => {

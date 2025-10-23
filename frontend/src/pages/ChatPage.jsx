@@ -48,7 +48,9 @@ const ChatPage = () => {
         onChatSelect={handleChatSelect}
         activeChat={activeChat}
         currentUser={currentUser}
-        onUserUpdate={fetchCurrentUser}
+        onUserUpdate={(updatedUser) => {
+          setCurrentUser(updatedUser);
+        }}
       />
       <ChatWindow
         chat={activeChat}

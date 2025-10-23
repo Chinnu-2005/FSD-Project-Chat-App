@@ -17,27 +17,27 @@ const ChatWindow = ({ chat, currentUser }) => {
     if (chat) {
       fetchMessages();
       socketService.joinRoom(chat._id);
+      
+      // Socket listeners with current chat context
+      socketService.on('new_private_message', handleNewMessage);
+      socketService.on('new_group_message', handleNewMessage);
+      socketService.on('message_sent', handleNewMessage);
+      socketService.on('user_typing_private', handleTyping);
+      socketService.on('user_typing_group', handleTyping);
+      socketService.on('user_stopped_typing_private', handleStopTyping);
+      socketService.on('user_stopped_typing_group', handleStopTyping);
     }
-  }, [chat]);
-
-  useEffect(() => {
-    // Socket listeners
-    socketService.on('new_private_message', handleNewMessage);
-    socketService.on('new_group_message', handleNewMessage);
-    socketService.on('user_typing_private', handleTyping);
-    socketService.on('user_typing_group', handleTyping);
-    socketService.on('user_stopped_typing_private', handleStopTyping);
-    socketService.on('user_stopped_typing_group', handleStopTyping);
     
     return () => {
       socketService.off('new_private_message', handleNewMessage);
       socketService.off('new_group_message', handleNewMessage);
+      socketService.off('message_sent', handleNewMessage);
       socketService.off('user_typing_private', handleTyping);
       socketService.off('user_typing_group', handleTyping);
       socketService.off('user_stopped_typing_private', handleStopTyping);
       socketService.off('user_stopped_typing_group', handleStopTyping);
     };
-  }, []);
+  }, [chat]);
 
   useEffect(() => {
     scrollToBottom();
@@ -62,14 +62,24 @@ const ChatWindow = ({ chat, currentUser }) => {
   };
 
   const handleNewMessage = (message) => {
+    console.log('Received message via socket:', message);
     if (!chat || !message) return;
     
     const isForCurrentChat = 
       (chat.type === 'private' && message.privateChat === chat._id) ||
       (chat.type === 'group' && message.groupChat === chat._id);
     
+    console.log('Is for current chat:', isForCurrentChat, { 
+      chatId: chat._id, 
+      messageChat: message.privateChat || message.groupChat,
+      chatType: chat.type,
+      messageType: message.privateChat ? 'private' : 'group'
+    });
+    
     if (isForCurrentChat) {
+      console.log('Current messages count:', messages.length);
       setMessages(prev => {
+        console.log('Previous messages in setter:', prev.length);
         // Check for duplicates by message ID or content+timestamp
         const isDuplicate = prev.some(msg => 
           msg._id === message._id || 
@@ -78,8 +88,14 @@ const ChatWindow = ({ chat, currentUser }) => {
            Math.abs(new Date(msg.createdAt) - new Date(message.createdAt)) < 1000)
         );
         
-        if (isDuplicate) return prev;
-        return [...prev, message];
+        console.log('Adding message to state, isDuplicate:', isDuplicate);
+        if (isDuplicate) {
+          console.log('Message is duplicate, not adding');
+          return prev;
+        }
+        const newMessages = [...prev, message];
+        console.log('New messages array length:', newMessages.length);
+        return newMessages;
       });
       
       // Mark as read if not from current user
@@ -108,24 +124,37 @@ const ChatWindow = ({ chat, currentUser }) => {
     setLoading(true);
     
     try {
-      const formData = new FormData();
-      if (newMessage.trim()) formData.append('content', newMessage.trim());
+      let fileUrl = null;
+      let messageType = 'text';
+      
+      // Handle file upload first if there's a file
       if (selectedFile) {
+        const formData = new FormData();
         formData.append('file', selectedFile);
-        formData.append('messageType', selectedFile.type.startsWith('image/') ? 'image' : 'file');
+        
+        const uploadResponse = await api.post('/upload/file', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        fileUrl = uploadResponse.data.data.fileUrl;
+        messageType = selectedFile.type.startsWith('image/') ? 'image' : 'file';
       }
-
-      const endpoint = chat.type === 'group' 
-        ? `/groups/${chat._id}/messages`
-        : `/chats/${chat._id}/messages`;
       
-      const response = await api.post(endpoint, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      const sentMessage = response.data.data;
+      // Send message via socket
+      const messageData = {
+        chatId: chat._id,
+        content: newMessage.trim(),
+        messageType,
+        fileUrl
+      };
       
-      // Add message to local state immediately
-      setMessages(prev => [...prev, sentMessage]);
+      console.log('Sending message via socket:', messageData);
+      
+      if (chat.type === 'group') {
+        socketService.emit('send_group_message', { ...messageData, groupId: chat._id });
+      } else {
+        socketService.emit('send_private_message', messageData);
+      }
       
       setNewMessage('');
       setSelectedFile(null);

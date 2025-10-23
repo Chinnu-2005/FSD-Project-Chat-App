@@ -397,6 +397,11 @@ const Sidebar = ({ onChatSelect, activeChat, currentUser, onUserUpdate }) => {
         user={currentUser}
         isOpen={showProfile}
         onClose={() => setShowProfile(false)}
+        onUserUpdate={(updatedUser) => {
+          if (onUserUpdate) {
+            onUserUpdate(updatedUser);
+          }
+        }}
       />
       
       <UserProfileModal
